@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "@project-serum/serum-dev-tools": "^1.0.5"
+  }
+}

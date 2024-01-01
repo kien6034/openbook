@@ -1,0 +1,38 @@
+{
+  "name": "@renec/openbook-scripts",
+  "version": "0.1.0",
+  "description": "openbook",
+  "license": "Apache-2.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "dependencies": {
+    "@openbook-dex/common": "^0.0.7",
+    "@openbook-dex/openbook": "^0.0.9",
+    "@orca-so/common-sdk": "^0.1.9",
+    "@project-serum/anchor": "~0.25.0",
+    "@project-serum/serum-dev-tools": "^1.0.5",
+    "@solana/web3.js": "^1.87.6"
+  },
+  "scripts": {
+    "build": "tsc -p src",
+    "watch": "tsc -w -p src",
+    "prepublishOnly": "yarn build",
+    "prettier-format": "prettier --config .prettierrc '**/**/*.ts' --write",
+    "test": "export TS_JEST_DISABLE_VER_CHECKER=true && npx jest --coverage",
+    "docs": "npx typedoc --options typedoc.json",
+    "ts-node": "ts-node"
+  },
+  "lint-staged": {
+    "*.{ts,md}": "yarn run prettier-format"
+  },
+  "files": [
+    "/dist"
+  ],
+  "author": "kientrinh@remitano.com",
+  "devDependencies": {
+    "@types/bs58": "^4.0.1",
+    "@types/node": "^20.10.4",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.0.4"
+  }
+}

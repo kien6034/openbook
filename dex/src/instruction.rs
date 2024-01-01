@@ -1,17 +1,14 @@
 #![cfg_attr(not(feature = "program"), allow(unused))]
 use crate::error::DexError;
-use crate::matching::{OrderType, Side};
+use crate::matching::{ OrderType, Side };
 use bytemuck::cast;
-use serde::{Deserialize, Serialize};
-use solana_program::{
-    instruction::{AccountMeta, Instruction},
-    pubkey::Pubkey,
-    sysvar::rent,
-};
+use serde::{ Deserialize, Serialize };
+use solana_program::msg;
+use solana_program::{ instruction::{ AccountMeta, Instruction }, pubkey::Pubkey, sysvar::rent };
 use std::convert::TryInto;
 
-use arrayref::{array_ref, array_refs};
-use num_enum::{IntoPrimitive, TryFromPrimitive};
+use arrayref::{ array_ref, array_refs };
+use num_enum::{ IntoPrimitive, TryFromPrimitive };
 use std::num::NonZeroU64;
 
 #[cfg(test)]
@@ -60,7 +57,15 @@ pub struct InitializeMarketInstruction {
 }
 
 #[derive(
-    PartialEq, Eq, Copy, Clone, Debug, TryFromPrimitive, IntoPrimitive, Serialize, Deserialize,
+    PartialEq,
+    Eq,
+    Copy,
+    Clone,
+    Debug,
+    TryFromPrimitive,
+    IntoPrimitive,
+    Serialize,
+    Deserialize
 )]
 #[cfg_attr(test, derive(Arbitrary))]
 #[cfg_attr(feature = "fuzz", derive(arbitrary::Arbitrary))]
@@ -169,15 +174,9 @@ pub struct NewOrderInstructionV1 {
 impl NewOrderInstructionV1 {
     pub fn add_self_trade_behavior(
         self,
-        self_trade_behavior: SelfTradeBehavior,
+        self_trade_behavior: SelfTradeBehavior
     ) -> NewOrderInstructionV2 {
-        let NewOrderInstructionV1 {
-            side,
-            limit_price,
-            max_qty,
-            order_type,
-            client_id,
-        } = self;
+        let NewOrderInstructionV1 { side, limit_price, max_qty, order_type, client_id } = self;
         NewOrderInstructionV2 {
             side,
             limit_price,
@@ -204,8 +203,9 @@ impl SendTakeInstruction {
         let side = Side::try_from_primitive(u32::from_le_bytes(side_arr).try_into().ok()?).ok()?;
         let limit_price = NonZeroU64::new(u64::from_le_bytes(price_arr))?;
         let max_coin_qty = NonZeroU64::new(u64::from_le_bytes(max_coin_qty_arr))?;
-        let max_native_pc_qty_including_fees =
-            NonZeroU64::new(u64::from_le_bytes(max_native_pc_qty_arr))?;
+        let max_native_pc_qty_including_fees = NonZeroU64::new(
+            u64::from_le_bytes(max_native_pc_qty_arr)
+        )?;
         let min_coin_qty = u64::from_le_bytes(min_coin_qty_arr);
         let min_native_pc_qty = u64::from_le_bytes(min_native_pc_qty_arr);
         let limit = u16::from_le_bytes(limit_arr);
@@ -239,16 +239,15 @@ impl NewOrderInstructionV3 {
         let side = Side::try_from_primitive(u32::from_le_bytes(side_arr).try_into().ok()?).ok()?;
         let limit_price = NonZeroU64::new(u64::from_le_bytes(price_arr))?;
         let max_coin_qty = NonZeroU64::new(u64::from_le_bytes(max_coin_qty_arr))?;
-        let max_native_pc_qty_including_fees =
-            NonZeroU64::new(u64::from_le_bytes(max_native_pc_qty_arr))?;
+        let max_native_pc_qty_including_fees = NonZeroU64::new(
+            u64::from_le_bytes(max_native_pc_qty_arr)
+        )?;
         let self_trade_behavior = SelfTradeBehavior::try_from_primitive(
-            u32::from_le_bytes(self_trade_behavior_arr)
-                .try_into()
-                .ok()?,
-        )
-        .ok()?;
-        let order_type =
-            OrderType::try_from_primitive(u32::from_le_bytes(otype_arr).try_into().ok()?).ok()?;
+            u32::from_le_bytes(self_trade_behavior_arr).try_into().ok()?
+        ).ok()?;
+        let order_type = OrderType::try_from_primitive(
+            u32::from_le_bytes(otype_arr).try_into().ok()?
+        ).ok()?;
         let client_order_id = u64::from_le_bytes(client_order_id_bytes);
         let limit = u16::from_le_bytes(limit_arr);
         let max_ts = i64::from_le_bytes(max_ts);
@@ -269,13 +268,21 @@ impl NewOrderInstructionV3 {
 
 impl NewOrderInstructionV1 {
     fn unpack(data: &[u8; 32]) -> Option<Self> {
-        let (&side_arr, &price_arr, &max_qty_arr, &otype_arr, &client_id_bytes) =
-            array_refs![data, 4, 8, 8, 4, 8];
+        let (&side_arr, &price_arr, &max_qty_arr, &otype_arr, &client_id_bytes) = array_refs![
+            data,
+            4,
+            8,
+            8,
+            4,
+            8
+        ];
         let client_id = u64::from_le_bytes(client_id_bytes);
         let side = match u32::from_le_bytes(side_arr) {
             0 => Side::Bid,
             1 => Side::Ask,
-            _ => return None,
+            _ => {
+                return None;
+            }
         };
         let limit_price = NonZeroU64::new(u64::from_le_bytes(price_arr))?;
         let max_qty = NonZeroU64::new(u64::from_le_bytes(max_qty_arr))?;
@@ -283,7 +290,9 @@ impl NewOrderInstructionV1 {
             0 => OrderType::Limit,
             1 => OrderType::ImmediateOrCancel,
             2 => OrderType::PostOnly,
-            _ => return None,
+            _ => {
+                return None;
+            }
         };
         Some(NewOrderInstructionV1 {
             side,
@@ -529,21 +538,23 @@ impl MarketInstruction {
         }
         let discrim = u32::from_le_bytes(discrim);
         Some(match (discrim, data.len()) {
-            (0, 34) => MarketInstruction::InitializeMarket({
-                let data_array = array_ref![data, 0, 34];
-                let fields = array_refs![data_array, 8, 8, 2, 8, 8];
-                InitializeMarketInstruction {
-                    coin_lot_size: u64::from_le_bytes(*fields.0),
-                    pc_lot_size: u64::from_le_bytes(*fields.1),
-                    fee_rate_bps: u16::from_le_bytes(*fields.2),
-                    vault_signer_nonce: u64::from_le_bytes(*fields.3),
-                    pc_dust_threshold: u64::from_le_bytes(*fields.4),
-                }
-            }),
-            (1, 32) => MarketInstruction::NewOrder({
-                let data_arr = array_ref![data, 0, 32];
-                NewOrderInstructionV1::unpack(data_arr)?
-            }),
+            (0, 34) =>
+                MarketInstruction::InitializeMarket({
+                    let data_array = array_ref![data, 0, 34];
+                    let fields = array_refs![data_array, 8, 8, 2, 8, 8];
+                    InitializeMarketInstruction {
+                        coin_lot_size: u64::from_le_bytes(*fields.0),
+                        pc_lot_size: u64::from_le_bytes(*fields.1),
+                        fee_rate_bps: u16::from_le_bytes(*fields.2),
+                        vault_signer_nonce: u64::from_le_bytes(*fields.3),
+                        pc_dust_threshold: u64::from_le_bytes(*fields.4),
+                    }
+                }),
+            (1, 32) =>
+                MarketInstruction::NewOrder({
+                    let data_arr = array_ref![data, 0, 32];
+                    NewOrderInstructionV1::unpack(data_arr)?
+                }),
             (2, 2) => {
                 let limit = array_ref![data, 0, 2];
                 MarketInstruction::MatchOrders(u16::from_le_bytes(*limit))
@@ -552,24 +563,27 @@ impl MarketInstruction {
                 let limit = array_ref![data, 0, 2];
                 MarketInstruction::ConsumeEvents(u16::from_le_bytes(*limit))
             }
-            (4, 53) => MarketInstruction::CancelOrder({
-                let data_array = array_ref![data, 0, 53];
-                let fields = array_refs![data_array, 4, 16, 32, 1];
-                let side = match u32::from_le_bytes(*fields.0) {
-                    0 => Side::Bid,
-                    1 => Side::Ask,
-                    _ => return None,
-                };
-                let order_id = u128::from_le_bytes(*fields.1);
-                let owner = cast(*fields.2);
-                let &[owner_slot] = fields.3;
-                CancelOrderInstruction {
-                    side,
-                    order_id,
-                    owner,
-                    owner_slot,
-                }
-            }),
+            (4, 53) =>
+                MarketInstruction::CancelOrder({
+                    let data_array = array_ref![data, 0, 53];
+                    let fields = array_refs![data_array, 4, 16, 32, 1];
+                    let side = match u32::from_le_bytes(*fields.0) {
+                        0 => Side::Bid,
+                        1 => Side::Ask,
+                        _ => {
+                            return None;
+                        }
+                    };
+                    let order_id = u128::from_le_bytes(*fields.1);
+                    let owner = cast(*fields.2);
+                    let &[owner_slot] = fields.3;
+                    CancelOrderInstruction {
+                        side,
+                        order_id,
+                        owner,
+                        owner_slot,
+                    }
+                }),
             (5, 0) => MarketInstruction::SettleFunds,
             (6, 8) => {
                 let client_id = array_ref![data, 0, 8];
@@ -577,37 +591,40 @@ impl MarketInstruction {
             }
             (7, 0) => MarketInstruction::DisableMarket,
             (8, 0) => MarketInstruction::SweepFees,
-            (9, 36) => MarketInstruction::NewOrderV2({
-                let data_arr = array_ref![data, 0, 36];
-                let (v1_data_arr, v2_data_arr) = array_refs![data_arr, 32, 4];
-                let v1_instr = NewOrderInstructionV1::unpack(v1_data_arr)?;
-                let self_trade_behavior = SelfTradeBehavior::try_from_primitive(
-                    u32::from_le_bytes(*v2_data_arr).try_into().ok()?,
-                )
-                .ok()?;
-                v1_instr.add_self_trade_behavior(self_trade_behavior)
-            }),
-            (10, len) if len == 46 || len == 54 => MarketInstruction::NewOrderV3({
-                let extended_data = match len {
-                    46 => Some([data, &i64::MAX.to_le_bytes()].concat()),
-                    54 => Some(data.to_vec()),
-                    _ => None,
-                }?;
-                let data_arr = array_ref![extended_data, 0, 54];
-                NewOrderInstructionV3::unpack(data_arr)?
-            }),
-            (11, 20) => MarketInstruction::CancelOrderV2({
-                let data_arr = array_ref![data, 0, 20];
-                CancelOrderInstructionV2::unpack(data_arr)?
-            }),
+            (9, 36) =>
+                MarketInstruction::NewOrderV2({
+                    let data_arr = array_ref![data, 0, 36];
+                    let (v1_data_arr, v2_data_arr) = array_refs![data_arr, 32, 4];
+                    let v1_instr = NewOrderInstructionV1::unpack(v1_data_arr)?;
+                    let self_trade_behavior = SelfTradeBehavior::try_from_primitive(
+                        u32::from_le_bytes(*v2_data_arr).try_into().ok()?
+                    ).ok()?;
+                    v1_instr.add_self_trade_behavior(self_trade_behavior)
+                }),
+            (10, len) if len == 46 || len == 54 =>
+                MarketInstruction::NewOrderV3({
+                    let extended_data = (match len {
+                        46 => Some([data, &i64::MAX.to_le_bytes()].concat()),
+                        54 => Some(data.to_vec()),
+                        _ => None,
+                    })?;
+                    let data_arr = array_ref![extended_data, 0, 54];
+                    NewOrderInstructionV3::unpack(data_arr)?
+                }),
+            (11, 20) =>
+                MarketInstruction::CancelOrderV2({
+                    let data_arr = array_ref![data, 0, 20];
+                    CancelOrderInstructionV2::unpack(data_arr)?
+                }),
             (12, 8) => {
                 let client_id = array_ref![data, 0, 8];
                 MarketInstruction::CancelOrderByClientIdV2(u64::from_le_bytes(*client_id))
             }
-            (13, 46) => MarketInstruction::SendTake({
-                let data_arr = array_ref![data, 0, 46];
-                SendTakeInstruction::unpack(data_arr)?
-            }),
+            (13, 46) =>
+                MarketInstruction::SendTake({
+                    let data_arr = array_ref![data, 0, 46];
+                    SendTakeInstruction::unpack(data_arr)?
+                }),
             (14, 0) => MarketInstruction::CloseOpenOrders,
             (15, 0) => MarketInstruction::InitOpenOrders,
             (16, 2) => {
@@ -627,13 +644,15 @@ impl MarketInstruction {
                 }
                 MarketInstruction::CancelOrdersByClientIds(client_ids)
             }
-            (19, 54) => MarketInstruction::ReplaceOrderByClientId({
-                let data_arr = array_ref![data, 0, 54];
-                NewOrderInstructionV3::unpack(data_arr)?
-            }),
+            (19, 54) =>
+                MarketInstruction::ReplaceOrderByClientId({
+                    let data_arr = array_ref![data, 0, 54];
+                    NewOrderInstructionV3::unpack(data_arr)?
+                }),
             (20, len) if len % 54 == 8 && len <= 8 + 8 * 54 => {
-                if u64::from_le_bytes(data[0..8].try_into().unwrap())
-                    != (data.len() as u64 - 8) / 54
+                if
+                    u64::from_le_bytes(data[0..8].try_into().unwrap()) !=
+                    ((data.len() as u64) - 8) / 54
                 {
                     return None;
                 }
@@ -647,7 +666,9 @@ impl MarketInstruction {
                     .collect::<Option<Vec<_>>>()?;
                 MarketInstruction::ReplaceOrdersByClientIds(new_orders)
             }
-            _ => return None,
+            _ => {
+                return None;
+            }
         })
     }
 
@@ -680,16 +701,16 @@ pub fn initialize_market(
     coin_lot_size: u64,
     pc_lot_size: u64,
     vault_signer_nonce: u64,
-    pc_dust_threshold: u64,
+    pc_dust_threshold: u64
 ) -> Result<solana_program::instruction::Instruction, DexError> {
+    msg!("Heyyy");
     let data = MarketInstruction::InitializeMarket(InitializeMarketInstruction {
         coin_lot_size,
         pc_lot_size,
         fee_rate_bps: 0,
         vault_signer_nonce,
         pc_dust_threshold,
-    })
-    .pack();
+    }).pack();
 
     let market_account = AccountMeta::new(*market, false);
 
@@ -718,7 +739,7 @@ pub fn initialize_market(
         coin_mint,
         pc_mint,
         //srm_mint,
-        rent_sysvar,
+        rent_sysvar
     ];
     if let Some(auth) = authority_pk {
         let authority = AccountMeta::new_readonly(*auth, false);
@@ -763,7 +784,7 @@ pub fn new_order(
     self_trade_behavior: SelfTradeBehavior,
     limit: u16,
     max_native_pc_qty_including_fees: NonZeroU64,
-    max_ts: i64,
+    max_ts: i64
 ) -> Result<Instruction, DexError> {
     let data = MarketInstruction::NewOrderV3(NewOrderInstructionV3 {
         side,
@@ -775,8 +796,7 @@ pub fn new_order(
         limit,
         max_native_pc_qty_including_fees,
         max_ts,
-    })
-    .pack();
+    }).pack();
     let mut accounts = vec![
         AccountMeta::new(*market, false),
         AccountMeta::new(*open_orders_account, false),
@@ -789,10 +809,10 @@ pub fn new_order(
         AccountMeta::new(*coin_vault, false),
         AccountMeta::new(*pc_vault, false),
         AccountMeta::new_readonly(*spl_token_program_id, false),
-        AccountMeta::new_readonly(*rent_sysvar_id, false),
+        AccountMeta::new_readonly(*rent_sysvar_id, false)
     ];
     if let Some(key) = srm_account_referral {
-        accounts.push(AccountMeta::new_readonly(*key, false))
+        accounts.push(AccountMeta::new_readonly(*key, false));
     }
     Ok(Instruction {
         program_id: *program_id,
@@ -810,7 +830,7 @@ pub fn match_orders(
     event_queue: &Pubkey,
     coin_fee_receivable_account: &Pubkey,
     pc_fee_receivable_account: &Pubkey,
-    limit: u16,
+    limit: u16
 ) -> Result<Instruction, DexError> {
     let data = MarketInstruction::MatchOrders(limit).pack();
     let accounts: Vec<AccountMeta> = vec![
@@ -820,7 +840,7 @@ pub fn match_orders(
         AccountMeta::new(*bids, false),
         AccountMeta::new(*asks, false),
         AccountMeta::new(*coin_fee_receivable_account, false),
-        AccountMeta::new(*pc_fee_receivable_account, false),
+        AccountMeta::new(*pc_fee_receivable_account, false)
     ];
     Ok(Instruction {
         program_id: *program_id,
@@ -836,19 +856,21 @@ pub fn consume_events(
     event_queue: &Pubkey,
     coin_fee_receivable_account: &Pubkey,
     pc_fee_receivable_account: &Pubkey,
-    limit: u16,
+    limit: u16
 ) -> Result<Instruction, DexError> {
     let data = MarketInstruction::ConsumeEvents(limit).pack();
     let mut accounts: Vec<AccountMeta> = open_orders_accounts
         .iter()
         .map(|key| AccountMeta::new(**key, false))
         .collect();
-    accounts.append(&mut vec![
-        AccountMeta::new(*market, false),
-        AccountMeta::new(*event_queue, false),
-        AccountMeta::new(*coin_fee_receivable_account, false),
-        AccountMeta::new(*pc_fee_receivable_account, false),
-    ]);
+    accounts.append(
+        &mut vec![
+            AccountMeta::new(*market, false),
+            AccountMeta::new(*event_queue, false),
+            AccountMeta::new(*coin_fee_receivable_account, false),
+            AccountMeta::new(*pc_fee_receivable_account, false)
+        ]
+    );
     Ok(Instruction {
         program_id: *program_id,
         data,
@@ -862,18 +884,20 @@ pub fn consume_events_permissioned(
     market: &Pubkey,
     event_queue: &Pubkey,
     consume_events_authority: &Pubkey,
-    limit: u16,
+    limit: u16
 ) -> Result<Instruction, DexError> {
     let data = MarketInstruction::ConsumeEventsPermissioned(limit).pack();
     let mut accounts: Vec<AccountMeta> = open_orders_accounts
         .iter()
         .map(|key| AccountMeta::new(**key, false))
         .collect();
-    accounts.append(&mut vec![
-        AccountMeta::new(*market, false),
-        AccountMeta::new(*event_queue, false),
-        AccountMeta::new_readonly(*consume_events_authority, true),
-    ]);
+    accounts.append(
+        &mut vec![
+            AccountMeta::new(*market, false),
+            AccountMeta::new(*event_queue, false),
+            AccountMeta::new_readonly(*consume_events_authority, true)
+        ]
+    );
     Ok(Instruction {
         program_id: *program_id,
         data,
@@ -890,7 +914,7 @@ pub fn cancel_order(
     open_orders_account_owner: &Pubkey,
     event_queue: &Pubkey,
     side: Side,
-    order_id: u128,
+    order_id: u128
 ) -> Result<Instruction, DexError> {
     let data = MarketInstruction::CancelOrderV2(CancelOrderInstructionV2 { side, order_id }).pack();
     let accounts: Vec<AccountMeta> = vec![
@@ -899,7 +923,7 @@ pub fn cancel_order(
         AccountMeta::new(*market_asks, false),
         AccountMeta::new(*open_orders_account, false),
         AccountMeta::new_readonly(*open_orders_account_owner, true),
-        AccountMeta::new(*event_queue, false),
+        AccountMeta::new(*event_queue, false)
     ];
     Ok(Instruction {
         program_id: *program_id,
@@ -919,7 +943,7 @@ pub fn settle_funds(
     pc_vault: &Pubkey,
     pc_wallet: &Pubkey,
     referrer_pc_wallet: Option<&Pubkey>,
-    vault_signer: &Pubkey,
+    vault_signer: &Pubkey
 ) -> Result<Instruction, DexError> {
     let data = MarketInstruction::SettleFunds.pack();
     let mut accounts: Vec<AccountMeta> = vec![
@@ -931,10 +955,10 @@ pub fn settle_funds(
         AccountMeta::new(*coin_wallet, false),
         AccountMeta::new(*pc_wallet, false),
         AccountMeta::new_readonly(*vault_signer, false),
-        AccountMeta::new_readonly(*spl_token_program_id, false),
+        AccountMeta::new_readonly(*spl_token_program_id, false)
     ];
     if let Some(key) = referrer_pc_wallet {
-        accounts.push(AccountMeta::new(*key, false))
+        accounts.push(AccountMeta::new(*key, false));
     }
     Ok(Instruction {
         program_id: *program_id,
@@ -951,7 +975,7 @@ pub fn cancel_order_by_client_order_id(
     open_orders_account: &Pubkey,
     open_orders_account_owner: &Pubkey,
     event_queue: &Pubkey,
-    client_order_id: u64,
+    client_order_id: u64
 ) -> Result<Instruction, DexError> {
     let data = MarketInstruction::CancelOrderByClientIdV2(client_order_id).pack();
     let accounts: Vec<AccountMeta> = vec![
@@ -960,7 +984,7 @@ pub fn cancel_order_by_client_order_id(
         AccountMeta::new(*market_asks, false),
         AccountMeta::new(*open_orders_account, false),
         AccountMeta::new_readonly(*open_orders_account_owner, true),
-        AccountMeta::new(*event_queue, false),
+        AccountMeta::new(*event_queue, false)
     ];
     Ok(Instruction {
         program_id: *program_id,
@@ -977,7 +1001,7 @@ pub fn cancel_orders_by_client_order_ids(
     open_orders_account: &Pubkey,
     open_orders_account_owner: &Pubkey,
     event_queue: &Pubkey,
-    client_order_ids: [u64; 8],
+    client_order_ids: [u64; 8]
 ) -> Result<Instruction, DexError> {
     let data = MarketInstruction::CancelOrdersByClientIds(client_order_ids).pack();
     let accounts: Vec<AccountMeta> = vec![
@@ -986,7 +1010,7 @@ pub fn cancel_orders_by_client_order_ids(
         AccountMeta::new(*market_asks, false),
         AccountMeta::new(*open_orders_account, false),
         AccountMeta::new_readonly(*open_orders_account_owner, true),
-        AccountMeta::new(*event_queue, false),
+        AccountMeta::new(*event_queue, false)
     ];
     Ok(Instruction {
         program_id: *program_id,
@@ -998,12 +1022,12 @@ pub fn cancel_orders_by_client_order_ids(
 pub fn disable_market(
     program_id: &Pubkey,
     market: &Pubkey,
-    disable_authority_key: &Pubkey,
+    disable_authority_key: &Pubkey
 ) -> Result<Instruction, DexError> {
     let data = MarketInstruction::DisableMarket.pack();
     let accounts: Vec<AccountMeta> = vec![
         AccountMeta::new(*market, false),
-        AccountMeta::new_readonly(*disable_authority_key, true),
+        AccountMeta::new_readonly(*disable_authority_key, true)
     ];
     Ok(Instruction {
         program_id: *program_id,
@@ -1019,7 +1043,7 @@ pub fn sweep_fees(
     fee_sweeping_authority: &Pubkey,
     fee_receivable_account: &Pubkey,
     vault_signer: &Pubkey,
-    spl_token_program_id: &Pubkey,
+    spl_token_program_id: &Pubkey
 ) -> Result<Instruction, DexError> {
     let data = MarketInstruction::SweepFees.pack();
     let accounts: Vec<AccountMeta> = vec![
@@ -1028,7 +1052,7 @@ pub fn sweep_fees(
         AccountMeta::new_readonly(*fee_sweeping_authority, true),
         AccountMeta::new(*fee_receivable_account, false),
         AccountMeta::new_readonly(*vault_signer, false),
-        AccountMeta::new_readonly(*spl_token_program_id, false),
+        AccountMeta::new_readonly(*spl_token_program_id, false)
     ];
     Ok(Instruction {
         program_id: *program_id,
@@ -1042,14 +1066,14 @@ pub fn close_open_orders(
     open_orders: &Pubkey,
     owner: &Pubkey,
     destination: &Pubkey,
-    market: &Pubkey,
+    market: &Pubkey
 ) -> Result<Instruction, DexError> {
     let data = MarketInstruction::CloseOpenOrders.pack();
     let accounts: Vec<AccountMeta> = vec![
         AccountMeta::new(*open_orders, false),
         AccountMeta::new_readonly(*owner, true),
         AccountMeta::new(*destination, false),
-        AccountMeta::new_readonly(*market, false),
+        AccountMeta::new_readonly(*market, false)
     ];
     Ok(Instruction {
         program_id: *program_id,
@@ -1063,14 +1087,14 @@ pub fn init_open_orders(
     open_orders: &Pubkey,
     owner: &Pubkey,
     market: &Pubkey,
-    market_authority: Option<&Pubkey>,
+    market_authority: Option<&Pubkey>
 ) -> Result<Instruction, DexError> {
     let data = MarketInstruction::InitOpenOrders.pack();
     let mut accounts: Vec<AccountMeta> = vec![
         AccountMeta::new(*open_orders, false),
         AccountMeta::new_readonly(*owner, true),
         AccountMeta::new_readonly(*market, false),
-        AccountMeta::new_readonly(rent::ID, false),
+        AccountMeta::new_readonly(rent::ID, false)
     ];
     if let Some(market_authority) = market_authority {
         accounts.push(AccountMeta::new_readonly(*market_authority, true));
@@ -1091,7 +1115,7 @@ pub fn prune(
     open_orders: &Pubkey,
     open_orders_owner: &Pubkey,
     event_q: &Pubkey,
-    limit: u16,
+    limit: u16
 ) -> Result<Instruction, DexError> {
     let data = MarketInstruction::Prune(limit).pack();
     let accounts: Vec<AccountMeta> = vec![
@@ -1101,7 +1125,7 @@ pub fn prune(
         AccountMeta::new_readonly(*prune_authority, true),
         AccountMeta::new(*open_orders, false),
         AccountMeta::new_readonly(*open_orders_owner, false),
-        AccountMeta::new(*event_q, false),
+        AccountMeta::new(*event_q, false)
     ];
     Ok(Instruction {
         program_id: *program_id,
@@ -1121,9 +1145,12 @@ mod tests {
             let unpack_serde_result = MarketInstruction::unpack_serde(&serialized).ok();
             let unpack_result = MarketInstruction::unpack(&serialized);
             assert_eq!(unpack_result, Some(inst));
-            assert!(unpack_serde_result == unpack_result,
+            assert!(
+                unpack_serde_result == unpack_result,
                 "Serialized:\n{:?}\nLeft:\n{:#?}\nRight:\n{:#?}",
-                serialized, unpack_serde_result, unpack_result
+                serialized,
+                unpack_serde_result,
+                unpack_result
             );
         }
     }
@@ -1132,9 +1159,9 @@ mod tests {
 #[cfg(feature = "fuzz")]
 mod fuzzing {
     use super::*;
-    use crate::matching::{OrderType, Side};
+    use crate::matching::{ OrderType, Side };
     use arbitrary::Unstructured;
-    use std::convert::{TryFrom, TryInto};
+    use std::convert::{ TryFrom, TryInto };
 
     #[derive(arbitrary::Arbitrary)]
     struct NewOrderInstructionU64 {
@@ -1178,9 +1205,7 @@ mod fuzzing {
                 side: value.side,
                 limit_price: value.limit_price.try_into()?,
                 max_coin_qty: value.max_coin_qty.try_into()?,
-                max_native_pc_qty_including_fees: value
-                    .max_native_pc_qty_including_fees
-                    .try_into()?,
+                max_native_pc_qty_including_fees: value.max_native_pc_qty_including_fees.try_into()?,
                 min_coin_qty: value.min_coin_qty,
                 min_native_pc_qty: value.min_native_pc_qty,
                 limit: value.limit,
@@ -1196,9 +1221,7 @@ mod fuzzing {
                 side: value.side,
                 limit_price: value.limit_price.try_into()?,
                 max_coin_qty: value.max_coin_qty.try_into()?,
-                max_native_pc_qty_including_fees: value
-                    .max_native_pc_qty_including_fees
-                    .try_into()?,
+                max_native_pc_qty_including_fees: value.max_native_pc_qty_including_fees.try_into()?,
                 order_type: value.order_type,
                 client_order_id: value.client_order_id,
                 self_trade_behavior: value.self_trade_behavior,

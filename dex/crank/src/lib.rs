@@ -3,24 +3,26 @@
 #![allow(clippy::too_many_arguments)]
 
 use std::borrow::Cow;
-use std::cmp::{max, min};
+use std::cmp::{ max, min };
 use std::collections::BTreeSet;
 use std::convert::identity;
 use std::mem::size_of;
 use std::num::NonZeroU64;
-use std::sync::{Arc, Mutex};
+use std::sync::{ Arc, Mutex };
 use std::time::SystemTime;
-use std::{thread, time};
+use std::{ thread, time };
 
-use anyhow::{format_err, Result};
+use anyhow::{ format_err, Result };
 use clap::Parser;
 use debug_print::debug_println;
-use log::{error, info};
+use log::{ error, info };
 use rand::rngs::OsRng;
 use safe_transmute::{
     guard::SingleManyGuard,
-    to_bytes::{transmute_one_to_bytes, transmute_to_bytes},
-    transmute_many, transmute_many_pedantic, transmute_one_pedantic,
+    to_bytes::{ transmute_one_to_bytes, transmute_to_bytes },
+    transmute_many,
+    transmute_many_pedantic,
+    transmute_one_pedantic,
 };
 use sloggers::file::FileLoggerBuilder;
 use sloggers::types::Severity;
@@ -28,40 +30,48 @@ use sloggers::Build;
 use solana_client::rpc_client::RpcClient;
 use solana_client::rpc_config::RpcSendTransactionConfig;
 use solana_sdk::commitment_config::CommitmentConfig;
-use solana_sdk::instruction::{AccountMeta, Instruction};
+use solana_sdk::instruction::{ AccountMeta, Instruction };
 use solana_sdk::program_pack::Pack;
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signature::Signature;
-use solana_sdk::signature::{Keypair, Signer};
+use solana_sdk::signature::{ Keypair, Signer };
 use solana_sdk::transaction::Transaction;
 use spl_token::instruction as token_instruction;
 use warp::Filter;
 
 use serum_common::client::rpc::{
-    create_and_init_mint, create_token_account, mint_to_new_account, send_txn, simulate_transaction,
+    create_and_init_mint,
+    create_token_account,
+    mint_to_new_account,
+    send_txn,
+    simulate_transaction,
 };
 use serum_common::client::Cluster;
 use serum_dex::instruction::{
     cancel_order_by_client_order_id as cancel_order_by_client_order_id_ix,
     cancel_orders_by_client_order_ids as cancel_orders_by_client_order_ids_ix,
-    close_open_orders as close_open_orders_ix, init_open_orders as init_open_orders_ix,
-    MarketInstruction, NewOrderInstructionV3, SelfTradeBehavior,
+    close_open_orders as close_open_orders_ix,
+    init_open_orders as init_open_orders_ix,
+    MarketInstruction,
+    NewOrderInstructionV3,
+    SelfTradeBehavior,
 };
-use serum_dex::matching::{OrderType, Side};
+use serum_dex::matching::{ OrderType, Side };
 use serum_dex::state::gen_vault_signer_key;
 use serum_dex::state::Event;
 use serum_dex::state::EventQueueHeader;
 use serum_dex::state::QueueHeader;
 use serum_dex::state::Request;
 use serum_dex::state::RequestQueueHeader;
-use serum_dex::state::{AccountFlag, Market, MarketState, MarketStateV2};
+use serum_dex::state::{ AccountFlag, Market, MarketState, MarketStateV2 };
 
 pub fn with_logging<F: FnOnce()>(_to: &str, fnc: F) {
     fnc();
 }
 
 fn read_keypair_file(s: &str) -> Result<Keypair> {
-    solana_sdk::signature::read_keypair_file(s)
+    solana_sdk::signature
+        ::read_keypair_file(s)
         .map_err(|_| format_err!("failed to read keypair from {}", s))
 }
 
@@ -205,23 +215,12 @@ pub fn start(opts: Opts) -> Result<()> {
     let client = opts.client();
 
     match opts.command {
-        Command::Genesis {
-            payer,
-            mint,
-            owner_pubkey,
-            decimals,
-        } => {
+        Command::Genesis { payer, mint, owner_pubkey, decimals } => {
             let payer = read_keypair_file(&payer)?;
             let mint = read_keypair_file(&mint)?;
             create_and_init_mint(&client, &payer, &mint, &owner_pubkey, decimals)?;
         }
-        Command::Mint {
-            payer,
-            signer,
-            mint_pubkey,
-            recipient,
-            quantity,
-        } => {
+        Command::Mint { payer, signer, mint_pubkey, recipient, quantity } => {
             let payer = read_keypair_file(&payer)?;
             let minter = read_keypair_file(&signer)?;
             match recipient.as_ref() {
@@ -232,7 +231,7 @@ pub fn start(opts: Opts) -> Result<()> {
                         &minter,
                         &mint_pubkey,
                         recipient,
-                        quantity,
+                        quantity
                     )?;
                 }
                 None => {
@@ -253,14 +252,7 @@ pub fn start(opts: Opts) -> Result<()> {
             debug_println!("Getting market keys ...");
             let market_keys = get_keys_for_market(&client, dex_program_id, market)?;
             debug_println!("{:#?}", market_keys);
-            match_orders(
-                &client,
-                dex_program_id,
-                &payer,
-                &market_keys,
-                coin_wallet,
-                pc_wallet,
-            )?;
+            match_orders(&client, dex_program_id, &payer, &market_keys, coin_wallet, pc_wallet)?;
         }
         Command::ConsumeEvents {
             ref dex_program_id,
@@ -287,27 +279,15 @@ pub fn start(opts: Opts) -> Result<()> {
                 events_per_worker,
                 num_accounts.unwrap_or(32),
                 max_q_length.unwrap_or(1),
-                max_wait_for_events_delay.unwrap_or(60),
+                max_wait_for_events_delay.unwrap_or(60)
             )?;
         }
-        Command::MonitorQueue {
-            dex_program_id,
-            market,
-            port,
-        } => {
+        Command::MonitorQueue { dex_program_id, market, port } => {
             let client = opts.client();
-            let mut runtime = tokio::runtime::Builder::new()
-                .basic_scheduler()
-                .build()
-                .unwrap();
-            runtime
-                .block_on(read_queue_length_loop(client, dex_program_id, market, port))
-                .unwrap();
+            let mut runtime = tokio::runtime::Builder::new().basic_scheduler().build().unwrap();
+            runtime.block_on(read_queue_length_loop(client, dex_program_id, market, port)).unwrap();
         }
-        Command::PrintEventQueue {
-            ref dex_program_id,
-            ref market,
-        } => {
+        Command::PrintEventQueue { ref dex_program_id, ref market } => {
             let market_keys = get_keys_for_market(&client, dex_program_id, market)?;
             let event_q_data = client.get_account_data(&market_keys.event_q)?;
             let inner: Cow<[u64]> = remove_dex_account_padding(&event_q_data)?;
@@ -316,10 +296,7 @@ pub fn start(opts: Opts) -> Result<()> {
             debug_println!("Seg0:\n{:#x?}", events_seg0);
             debug_println!("Seg1:\n{:#x?}", events_seg1);
         }
-        Command::WholeShebang {
-            ref dex_program_id,
-            ref payer,
-        } => {
+        Command::WholeShebang { ref dex_program_id, ref payer } => {
             let payer = read_keypair_file(payer)?;
             whole_shebang(&client, dex_program_id, &payer)?;
         }
@@ -333,7 +310,10 @@ pub fn start(opts: Opts) -> Result<()> {
             ref signer,
         } => {
             let payer = read_keypair_file(payer)?;
-            let signer = signer.as_ref().map(|s| read_keypair_file(s)).transpose()?;
+            let signer = signer
+                .as_ref()
+                .map(|s| read_keypair_file(s))
+                .transpose()?;
             let market_keys = get_keys_for_market(&client, dex_program_id, market)?;
             settle_funds(
                 &client,
@@ -343,7 +323,7 @@ pub fn start(opts: Opts) -> Result<()> {
                 signer.as_ref(),
                 orders,
                 coin_wallet,
-                pc_wallet,
+                pc_wallet
             )?;
         }
         Command::ListMarket {
@@ -362,14 +342,11 @@ pub fn start(opts: Opts) -> Result<()> {
                 coin_mint,
                 pc_mint,
                 coin_lot_size.unwrap_or(1_000_000),
-                pc_lot_size.unwrap_or(10_000),
+                pc_lot_size.unwrap_or(10_000)
             )?;
             println!("Listed market: {:#?}", market_keys);
         }
-        Command::InitializeTokenAccount {
-            ref mint,
-            ref owner_account,
-        } => {
+        Command::InitializeTokenAccount { ref mint, ref owner_account } => {
             let owner = read_keypair_file(owner_account)?;
             let initialized_account = initialize_token_account(&client, mint, &owner)?;
             debug_println!("Initialized account: {}", initialized_account.pubkey());
@@ -392,13 +369,12 @@ pub struct MarketPubkeys {
 
 #[cfg(target_endian = "little")]
 fn remove_dex_account_padding<'a>(data: &'a [u8]) -> Result<Cow<'a, [u64]>> {
-    use serum_dex::state::{ACCOUNT_HEAD_PADDING, ACCOUNT_TAIL_PADDING};
+    use serum_dex::state::{ ACCOUNT_HEAD_PADDING, ACCOUNT_TAIL_PADDING };
     let head = &data[..ACCOUNT_HEAD_PADDING.len()];
     if data.len() < ACCOUNT_HEAD_PADDING.len() + ACCOUNT_TAIL_PADDING.len() {
-        return Err(format_err!(
-            "dex account length {} is too small to contain valid padding",
-            data.len()
-        ));
+        return Err(
+            format_err!("dex account length {} is too small to contain valid padding", data.len())
+        );
     }
     if head != ACCOUNT_HEAD_PADDING {
         return Err(format_err!("dex account head padding mismatch"));
@@ -407,7 +383,7 @@ fn remove_dex_account_padding<'a>(data: &'a [u8]) -> Result<Cow<'a, [u64]>> {
     if tail != ACCOUNT_TAIL_PADDING {
         return Err(format_err!("dex account tail padding mismatch"));
     }
-    let inner_data_range = ACCOUNT_HEAD_PADDING.len()..(data.len() - ACCOUNT_TAIL_PADDING.len());
+    let inner_data_range = ACCOUNT_HEAD_PADDING.len()..data.len() - ACCOUNT_TAIL_PADDING.len();
     let inner: &'a [u8] = &data[inner_data_range];
     let words: Cow<'a, [u64]> = match transmute_many_pedantic::<u64>(inner) {
         Ok(word_slice) => Cow::Borrowed(word_slice),
@@ -423,76 +399,71 @@ fn remove_dex_account_padding<'a>(data: &'a [u8]) -> Result<Cow<'a, [u64]>> {
 fn get_keys_for_market<'a>(
     client: &'a RpcClient,
     program_id: &'a Pubkey,
-    market: &'a Pubkey,
+    market: &'a Pubkey
 ) -> Result<MarketPubkeys> {
     let account_data: Vec<u8> = client.get_account_data(market)?;
     let words: Cow<[u64]> = remove_dex_account_padding(&account_data)?;
     let market_state: MarketState = {
         let account_flags = Market::account_flags(&account_data)?;
         if account_flags.intersects(AccountFlag::Permissioned) {
-            let state = transmute_one_pedantic::<MarketStateV2>(transmute_to_bytes(&words))
-                .map_err(|e| e.without_src())?;
+            let state = transmute_one_pedantic::<MarketStateV2>(transmute_to_bytes(&words)).map_err(
+                |e| e.without_src()
+            )?;
             state.check_flags(true)?;
             state.inner
         } else {
-            let state = transmute_one_pedantic::<MarketState>(transmute_to_bytes(&words))
-                .map_err(|e| e.without_src())?;
+            let state = transmute_one_pedantic::<MarketState>(transmute_to_bytes(&words)).map_err(
+                |e| e.without_src()
+            )?;
             state.check_flags(true)?;
             state
         }
     };
-    let vault_signer_key =
-        gen_vault_signer_key(market_state.vault_signer_nonce, market, program_id)?;
-    assert_eq!(
-        transmute_to_bytes(&identity(market_state.own_address)),
-        market.as_ref()
-    );
+    let vault_signer_key = gen_vault_signer_key(
+        market_state.vault_signer_nonce,
+        market,
+        program_id
+    )?;
+    assert_eq!(transmute_to_bytes(&identity(market_state.own_address)), market.as_ref());
     Ok(MarketPubkeys {
         market: Box::new(*market),
-        req_q: Box::new(Pubkey::new(transmute_one_to_bytes(&identity(
-            market_state.req_q,
-        )))),
-        event_q: Box::new(Pubkey::new(transmute_one_to_bytes(&identity(
-            market_state.event_q,
-        )))),
-        bids: Box::new(Pubkey::new(transmute_one_to_bytes(&identity(
-            market_state.bids,
-        )))),
-        asks: Box::new(Pubkey::new(transmute_one_to_bytes(&identity(
-            market_state.asks,
-        )))),
-        coin_vault: Box::new(Pubkey::new(transmute_one_to_bytes(&identity(
-            market_state.coin_vault,
-        )))),
-        pc_vault: Box::new(Pubkey::new(transmute_one_to_bytes(&identity(
-            market_state.pc_vault,
-        )))),
+        req_q: Box::new(Pubkey::new(transmute_one_to_bytes(&identity(market_state.req_q)))),
+        event_q: Box::new(Pubkey::new(transmute_one_to_bytes(&identity(market_state.event_q)))),
+        bids: Box::new(Pubkey::new(transmute_one_to_bytes(&identity(market_state.bids)))),
+        asks: Box::new(Pubkey::new(transmute_one_to_bytes(&identity(market_state.asks)))),
+        coin_vault: Box::new(
+            Pubkey::new(transmute_one_to_bytes(&identity(market_state.coin_vault)))
+        ),
+        pc_vault: Box::new(Pubkey::new(transmute_one_to_bytes(&identity(market_state.pc_vault)))),
         vault_signer_key: Box::new(vault_signer_key),
     })
 }
 
 fn parse_event_queue(data_words: &[u64]) -> Result<(EventQueueHeader, &[Event], &[Event])> {
     let (header_words, event_words) = data_words.split_at(size_of::<EventQueueHeader>() >> 3);
-    let header: EventQueueHeader =
-        transmute_one_pedantic(transmute_to_bytes(header_words)).map_err(|e| e.without_src())?;
-    let events: &[Event] = transmute_many::<_, SingleManyGuard>(transmute_to_bytes(event_words))
-        .map_err(|e| e.without_src())?;
+    let header: EventQueueHeader = transmute_one_pedantic(transmute_to_bytes(header_words)).map_err(
+        |e| e.without_src()
+    )?;
+    let events: &[Event] = transmute_many::<_, SingleManyGuard>(
+        transmute_to_bytes(event_words)
+    ).map_err(|e| e.without_src())?;
     let (tail_seg, head_seg) = events.split_at(header.head() as usize);
     let head_len = head_seg.len().min(header.count() as usize);
-    let tail_len = header.count() as usize - head_len;
+    let tail_len = (header.count() as usize) - head_len;
     Ok((header, &head_seg[..head_len], &tail_seg[..tail_len]))
 }
 
 fn parse_req_queue(data_words: &[u64]) -> Result<(RequestQueueHeader, &[Request], &[Request])> {
     let (header_words, request_words) = data_words.split_at(size_of::<RequestQueueHeader>() >> 3);
-    let header: RequestQueueHeader =
-        transmute_one_pedantic(transmute_to_bytes(header_words)).map_err(|e| e.without_src())?;
-    let request: &[Request] =
-        transmute_many::<_, SingleManyGuard>(transmute_to_bytes(request_words))
-            .map_err(|e| e.without_src())?;
+    let header: RequestQueueHeader = transmute_one_pedantic(
+        transmute_to_bytes(header_words)
+    ).map_err(|e| e.without_src())?;
+    let request: &[Request] = transmute_many::<_, SingleManyGuard>(
+        transmute_to_bytes(request_words)
+    ).map_err(|e| e.without_src())?;
     let (tail_seg, head_seg) = request.split_at(header.head() as usize);
     let head_len = head_seg.len().min(header.count() as usize);
-    let tail_len = header.count() as usize - head_len;
+    let tail_len = (header.count() as usize) - head_len;
     Ok((header, &head_seg[..head_len], &tail_seg[..tail_len]))
 }
 
@@ -523,7 +494,7 @@ fn consume_events_loop(
     events_per_worker: usize,
     num_accounts: usize,
     max_q_length: u64,
-    max_wait_for_events_delay: u64,
+    max_wait_for_events_delay: u64
 ) -> Result<()> {
     info!("Getting market keys ...");
     let client = opts.client();
@@ -531,7 +502,8 @@ fn consume_events_loop(
     info!("{:#?}", market_keys);
     let pool = threadpool::ThreadPool::new(num_workers);
     let max_slot_height_mutex = Arc::new(Mutex::new(0_u64));
-    let mut last_cranked_at = std::time::Instant::now()
+    let mut last_cranked_at = std::time::Instant
+        ::now()
         .checked_sub(std::time::Duration::from_secs(max_wait_for_events_delay))
         .unwrap_or_else(std::time::Instant::now);
 
@@ -540,27 +512,27 @@ fn consume_events_loop(
 
         let loop_start = std::time::Instant::now();
         let start_time = std::time::Instant::now();
-        let event_q_value_and_context = client
-            .get_account_with_commitment(&market_keys.event_q, CommitmentConfig::processed())?;
+        let event_q_value_and_context = client.get_account_with_commitment(
+            &market_keys.event_q,
+            CommitmentConfig::processed()
+        )?;
         let event_q_slot = event_q_value_and_context.context.slot;
         let max_slot_height = max_slot_height_mutex.lock().unwrap();
         if event_q_slot <= *max_slot_height {
             info!(
                 "Skipping crank. Already cranked for slot. Event queue slot: {}, Max seen slot: {}",
-                event_q_slot, max_slot_height
+                event_q_slot,
+                max_slot_height
             );
             continue;
         }
         drop(max_slot_height);
-        let event_q_data = event_q_value_and_context
-            .value
-            .ok_or_else(|| format_err!("Failed to retrieve account"))?
-            .data;
+        let event_q_data = event_q_value_and_context.value.ok_or_else(||
+            format_err!("Failed to retrieve account")
+        )?.data;
         let req_q_data = client
             .get_account_with_commitment(&market_keys.req_q, CommitmentConfig::processed())?
-            .value
-            .ok_or_else(|| format_err!("Failed to retrieve account"))?
-            .data;
+            .value.ok_or_else(|| format_err!("Failed to retrieve account"))?.data;
         let inner: Cow<[u64]> = remove_dex_account_padding(&event_q_data)?;
         let (_header, seg0, seg1) = parse_event_queue(&inner)?;
         let req_inner: Cow<[u64]> = remove_dex_account_padding(&req_q_data)?;
@@ -569,14 +541,19 @@ fn consume_events_loop(
         let req_q_len = req_seg0.len() + req_seg1.len();
         info!(
             "Size of request queue is {}, market {}, coin {}, pc {}",
-            req_q_len, market, coin_wallet, pc_wallet
+            req_q_len,
+            market,
+            coin_wallet,
+            pc_wallet
         );
 
         if event_q_len == 0 {
             continue;
-        } else if std::time::Duration::from_secs(max_wait_for_events_delay)
-            .gt(&last_cranked_at.elapsed())
-            && (event_q_len as u64) < max_q_length
+        } else if
+            std::time::Duration
+                ::from_secs(max_wait_for_events_delay)
+                .gt(&last_cranked_at.elapsed()) &&
+            (event_q_len as u64) < max_q_length
         {
             info!(
                 "Skipping crank. Last cranked {} seconds ago and queue only has {} events. \
@@ -589,9 +566,15 @@ fn consume_events_loop(
         } else {
             info!(
                 "Total event queue length: {}, market {}, coin {}, pc {}",
-                event_q_len, market, coin_wallet, pc_wallet
+                event_q_len,
+                market,
+                coin_wallet,
+                pc_wallet
             );
-            let accounts = seg0.iter().chain(seg1.iter()).map(|event| event.owner);
+            let accounts = seg0
+                .iter()
+                .chain(seg1.iter())
+                .map(|event| event.owner);
             let mut used_accounts = BTreeSet::new();
             for account in accounts {
                 used_accounts.insert(account);
@@ -609,11 +592,7 @@ fn consume_events_loop(
             );
             info!(
                 "First 5 accounts: {:?}",
-                orders_accounts
-                    .iter()
-                    .take(5)
-                    .map(hash_accounts)
-                    .collect::<Vec::<_>>()
+                orders_accounts.iter().take(5).map(hash_accounts).collect::<Vec<_>>()
             );
 
             let mut account_metas = Vec::with_capacity(orders_accounts.len() + 4);
@@ -626,9 +605,7 @@ fn consume_events_loop(
                 &market_keys.event_q,
                 coin_wallet,
                 pc_wallet,
-            ]
-            .iter()
-            {
+            ].iter() {
                 account_metas.push(AccountMeta::new(**pubkey, false));
             }
             debug_println!("Number of workers: {}", num_workers);
@@ -638,7 +615,7 @@ fn consume_events_loop(
                 event_q_len,
                 end_time.duration_since(start_time).as_millis()
             );
-            for thread_num in 0..min(num_workers, 2 * event_q_len / events_per_worker + 1) {
+            for thread_num in 0..min(num_workers, (2 * event_q_len) / events_per_worker + 1) {
                 let payer = read_keypair_file(payer_path)?;
                 let program_id = *program_id;
                 let client = opts.client();
@@ -655,7 +632,7 @@ fn consume_events_loop(
                         events_per_worker,
                         event_q,
                         max_slot_height_mutex_clone,
-                        event_q_slot,
+                        event_q_slot
                     )
                 });
             }
@@ -678,7 +655,7 @@ fn consume_events_wrapper(
     to_consume: usize,
     event_q: Pubkey,
     max_slot_height_mutex: Arc<Mutex<u64>>,
-    slot: u64,
+    slot: u64
 ) {
     let start = std::time::Instant::now();
     let result = consume_events_once(
@@ -688,7 +665,7 @@ fn consume_events_wrapper(
         account_metas,
         to_consume,
         thread_num,
-        event_q,
+        event_q
     );
     match result {
         Ok(signature) => {
@@ -704,7 +681,7 @@ fn consume_events_wrapper(
         Err(err) => {
             error!("[thread {}] Received error: {:?}", thread_num, err);
         }
-    };
+    }
 }
 
 pub fn consume_events_once(
@@ -714,7 +691,7 @@ pub fn consume_events_once(
     account_metas: Vec<AccountMeta>,
     to_consume: usize,
     _thread_number: usize,
-    _event_q: Pubkey,
+    _event_q: Pubkey
 ) -> Result<Signature> {
     let _start = std::time::Instant::now();
     let instruction_data: Vec<u8> = MarketInstruction::ConsumeEvents(to_consume as u16).pack();
@@ -726,24 +703,21 @@ pub fn consume_events_once(
     let random_instruction = solana_sdk::system_instruction::transfer(
         &payer.pubkey(),
         &payer.pubkey(),
-        rand::random::<u64>() % 10000 + 1,
+        (rand::random::<u64>() % 10000) + 1
     );
     let recent_hash = client.get_latest_blockhash()?;
     let txn = Transaction::new_signed_with_payer(
         &[instruction, random_instruction],
         Some(&payer.pubkey()),
         &[payer],
-        recent_hash,
+        recent_hash
     );
 
     info!("Consuming events ...");
-    let signature = client.send_transaction_with_config(
-        &txn,
-        RpcSendTransactionConfig {
-            skip_preflight: true,
-            ..RpcSendTransactionConfig::default()
-        },
-    )?;
+    let signature = client.send_transaction_with_config(&txn, RpcSendTransactionConfig {
+        skip_preflight: true,
+        ..RpcSendTransactionConfig::default()
+    })?;
     Ok(signature)
 }
 
@@ -754,12 +728,14 @@ fn consume_events(
     payer: &Keypair,
     state: &MarketPubkeys,
     coin_wallet: &Pubkey,
-    pc_wallet: &Pubkey,
+    pc_wallet: &Pubkey
 ) -> Result<()> {
     let instruction = {
         let i = consume_events_instruction(client, program_id, state, coin_wallet, pc_wallet)?;
         match i {
-            None => return Ok(()),
+            None => {
+                return Ok(());
+            }
             Some(i) => i,
         }
     };
@@ -769,7 +745,7 @@ fn consume_events(
         std::slice::from_ref(&instruction),
         Some(&payer.pubkey()),
         &[payer],
-        recent_hash,
+        recent_hash
     );
     info!("Consuming events ...");
     send_txn(client, &txn, false)?;
@@ -781,7 +757,7 @@ pub fn consume_events_instruction(
     program_id: &Pubkey,
     state: &MarketPubkeys,
     coin_wallet: &Pubkey,
-    pc_wallet: &Pubkey,
+    pc_wallet: &Pubkey
 ) -> Result<Option<Instruction>> {
     let event_q_data = client.get_account_data(&state.event_q)?;
     let inner: Cow<[u64]> = remove_dex_account_padding(&event_q_data)?;
@@ -793,7 +769,10 @@ pub fn consume_events_instruction(
     } else {
         info!("Total event queue length: {}", seg0.len() + seg1.len());
     }
-    let accounts = seg0.iter().chain(seg1.iter()).map(|event| event.owner);
+    let accounts = seg0
+        .iter()
+        .chain(seg1.iter())
+        .map(|event| event.owner);
     let mut orders_accounts: Vec<_> = accounts.collect();
     orders_accounts.sort_unstable();
     orders_accounts.dedup();
@@ -810,8 +789,9 @@ pub fn consume_events_instruction(
         account_metas.push(AccountMeta::new(**pubkey, false));
     }
 
-    let instruction_data: Vec<u8> =
-        MarketInstruction::ConsumeEvents(account_metas.len() as u16).pack();
+    let instruction_data: Vec<u8> = MarketInstruction::ConsumeEvents(
+        account_metas.len() as u16
+    ).pack();
 
     let instruction = Instruction {
         program_id: *program_id,
@@ -838,7 +818,7 @@ fn whole_shebang(client: &RpcClient, program_id: &Pubkey, payer: &Keypair) -> Re
         &coin_mint.pubkey(),
         &pc_mint.pubkey(),
         1_000_000,
-        10_000,
+        10_000
     )?;
     debug_println!("Market keys: {:#?}", market_keys);
 
@@ -848,7 +828,7 @@ fn whole_shebang(client: &RpcClient, program_id: &Pubkey, payer: &Keypair) -> Re
         payer,
         payer,
         &coin_mint.pubkey(),
-        1_000_000_000_000_000,
+        1_000_000_000_000_000
     )?;
     debug_println!("Minted {}", coin_wallet.pubkey());
 
@@ -858,7 +838,7 @@ fn whole_shebang(client: &RpcClient, program_id: &Pubkey, payer: &Keypair) -> Re
         payer,
         payer,
         &pc_mint.pubkey(),
-        1_000_000_000_000_000,
+        1_000_000_000_000_000
     )?;
     debug_println!("Minted {}", pc_wallet.pubkey());
 
@@ -868,10 +848,7 @@ fn whole_shebang(client: &RpcClient, program_id: &Pubkey, payer: &Keypair) -> Re
     init_open_orders(client, program_id, payer, &market_keys, &mut orders)?;
 
     debug_println!("Placing successful bid...");
-    let now = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64;
+    let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs() as i64;
     place_order(
         client,
         program_id,
@@ -889,7 +866,7 @@ fn whole_shebang(client: &RpcClient, program_id: &Pubkey, payer: &Keypair) -> Re
             self_trade_behavior: SelfTradeBehavior::DecrementTake,
             limit: std::u16::MAX,
             max_ts: now + 20,
-        },
+        }
     )?;
 
     debug_println!("Bid account: {}", orders.unwrap());
@@ -913,7 +890,7 @@ fn whole_shebang(client: &RpcClient, program_id: &Pubkey, payer: &Keypair) -> Re
             self_trade_behavior: SelfTradeBehavior::DecrementTake,
             limit: std::u16::MAX,
             max_ts: now - 5,
-        },
+        }
     );
     assert!(result.is_err());
 
@@ -940,7 +917,7 @@ fn whole_shebang(client: &RpcClient, program_id: &Pubkey, payer: &Keypair) -> Re
                 // 985982, 985983, 985984
                 client_order_id: 985982 + i,
                 max_ts: i64::MAX,
-            },
+            }
         )?;
     }
 
@@ -953,7 +930,7 @@ fn whole_shebang(client: &RpcClient, program_id: &Pubkey, payer: &Keypair) -> Re
         payer,
         &market_keys,
         &orders.unwrap(),
-        [985985, 985982, 100, 985984, 234, 0, 985984, 0],
+        [985985, 985982, 100, 985984, 234, 0, 985984, 0]
     )?;
 
     // Cancel the 2nd open order so that we can close it later.
@@ -963,7 +940,7 @@ fn whole_shebang(client: &RpcClient, program_id: &Pubkey, payer: &Keypair) -> Re
         payer,
         &market_keys,
         &orders.unwrap(),
-        985983,
+        985983
     )?;
 
     debug_println!("Consuming events in 15s ...");
@@ -974,7 +951,7 @@ fn whole_shebang(client: &RpcClient, program_id: &Pubkey, payer: &Keypair) -> Re
         payer,
         &market_keys,
         &coin_wallet.pubkey(),
-        &pc_wallet.pubkey(),
+        &pc_wallet.pubkey()
     )?;
     settle_funds(
         client,
@@ -984,15 +961,9 @@ fn whole_shebang(client: &RpcClient, program_id: &Pubkey, payer: &Keypair) -> Re
         Some(payer),
         &orders.unwrap(),
         &coin_wallet.pubkey(),
-        &pc_wallet.pubkey(),
+        &pc_wallet.pubkey()
     )?;
-    close_open_orders(
-        client,
-        program_id,
-        payer,
-        &market_keys,
-        orders.as_ref().unwrap(),
-    )?;
+    close_open_orders(client, program_id, payer, &market_keys, orders.as_ref().unwrap())?;
     Ok(())
 }
 
@@ -1002,18 +973,20 @@ pub fn cancel_order_by_client_order_id(
     owner: &Keypair,
     state: &MarketPubkeys,
     orders: &Pubkey,
-    client_order_id: u64,
+    client_order_id: u64
 ) -> Result<()> {
-    let ixs = &[cancel_order_by_client_order_id_ix(
-        program_id,
-        &state.market,
-        &state.bids,
-        &state.asks,
-        orders,
-        &owner.pubkey(),
-        &state.event_q,
-        client_order_id,
-    )?];
+    let ixs = &[
+        cancel_order_by_client_order_id_ix(
+            program_id,
+            &state.market,
+            &state.bids,
+            &state.asks,
+            orders,
+            &owner.pubkey(),
+            &state.event_q,
+            client_order_id
+        )?,
+    ];
     let recent_hash = client.get_latest_blockhash()?;
     let txn = Transaction::new_signed_with_payer(ixs, Some(&owner.pubkey()), &[owner], recent_hash);
 
@@ -1034,18 +1007,20 @@ pub fn cancel_orders_by_client_order_ids(
     owner: &Keypair,
     state: &MarketPubkeys,
     orders: &Pubkey,
-    client_order_ids: [u64; 8],
+    client_order_ids: [u64; 8]
 ) -> Result<()> {
-    let ixs = &[cancel_orders_by_client_order_ids_ix(
-        program_id,
-        &state.market,
-        &state.bids,
-        &state.asks,
-        orders,
-        &owner.pubkey(),
-        &state.event_q,
-        client_order_ids,
-    )?];
+    let ixs = &[
+        cancel_orders_by_client_order_ids_ix(
+            program_id,
+            &state.market,
+            &state.bids,
+            &state.asks,
+            orders,
+            &owner.pubkey(),
+            &state.event_q,
+            client_order_ids
+        )?,
+    ];
     let recent_hash = client.get_latest_blockhash()?;
     let txn = Transaction::new_signed_with_payer(ixs, Some(&owner.pubkey()), &[owner], recent_hash);
 
@@ -1066,16 +1041,12 @@ pub fn close_open_orders(
     program_id: &Pubkey,
     owner: &Keypair,
     state: &MarketPubkeys,
-    orders: &Pubkey,
+    orders: &Pubkey
 ) -> Result<()> {
     debug_println!("Closing open orders...");
-    let ixs = &[close_open_orders_ix(
-        program_id,
-        orders,
-        &owner.pubkey(),
-        &owner.pubkey(),
-        &state.market,
-    )?];
+    let ixs = &[
+        close_open_orders_ix(program_id, orders, &owner.pubkey(), &owner.pubkey(), &state.market)?,
+    ];
     let recent_hash = client.get_latest_blockhash()?;
     let txn = Transaction::new_signed_with_payer(ixs, Some(&owner.pubkey()), &[owner], recent_hash);
 
@@ -1095,7 +1066,7 @@ pub fn init_open_orders(
     program_id: &Pubkey,
     owner: &Keypair,
     state: &MarketPubkeys,
-    orders: &mut Option<Pubkey>,
+    orders: &mut Option<Pubkey>
 ) -> Result<()> {
     let mut instructions = Vec::new();
     let orders_keypair;
@@ -1107,7 +1078,7 @@ pub fn init_open_orders(
                 client,
                 program_id,
                 &owner.pubkey(),
-                size_of::<serum_dex::state::OpenOrders>(),
+                size_of::<serum_dex::state::OpenOrders>()
             )?;
             orders_keypair = orders_key;
             signers.push(&orders_keypair);
@@ -1116,13 +1087,9 @@ pub fn init_open_orders(
         }
     };
     *orders = Some(orders_pubkey);
-    instructions.push(init_open_orders_ix(
-        program_id,
-        &orders_pubkey,
-        &owner.pubkey(),
-        &state.market,
-        None,
-    )?);
+    instructions.push(
+        init_open_orders_ix(program_id, &orders_pubkey, &owner.pubkey(), &state.market, None)?
+    );
     signers.push(owner);
 
     let recent_hash = client.get_latest_blockhash()?;
@@ -1130,7 +1097,7 @@ pub fn init_open_orders(
         &instructions,
         Some(&owner.pubkey()),
         &signers,
-        recent_hash,
+        recent_hash
     );
     send_txn(client, &txn, false)?;
     Ok(())
@@ -1144,7 +1111,7 @@ pub fn place_order(
     state: &MarketPubkeys,
     orders: &mut Option<Pubkey>,
 
-    new_order: NewOrderInstructionV3,
+    new_order: NewOrderInstructionV3
 ) -> Result<()> {
     let mut instructions = Vec::new();
     let orders_keypair;
@@ -1156,7 +1123,7 @@ pub fn place_order(
                 client,
                 program_id,
                 &payer.pubkey(),
-                size_of::<serum_dex::state::OpenOrders>(),
+                size_of::<serum_dex::state::OpenOrders>()
             )?;
             orders_keypair = orders_key;
             signers.push(&orders_keypair);
@@ -1182,7 +1149,7 @@ pub fn place_order(
             AccountMeta::new(*state.coin_vault, false),
             AccountMeta::new(*state.pc_vault, false),
             AccountMeta::new_readonly(spl_token::ID, false),
-            AccountMeta::new_readonly(solana_sdk::sysvar::rent::ID, false),
+            AccountMeta::new_readonly(solana_sdk::sysvar::rent::ID, false)
         ],
     };
     instructions.push(instruction);
@@ -1193,7 +1160,7 @@ pub fn place_order(
         &instructions,
         Some(&payer.pubkey()),
         &signers,
-        recent_hash,
+        recent_hash
     );
     send_txn(client, &txn, false)?;
     Ok(())
@@ -1207,7 +1174,7 @@ fn settle_funds(
     signer: Option<&Keypair>,
     orders: &Pubkey,
     coin_wallet: &Pubkey,
-    pc_wallet: &Pubkey,
+    pc_wallet: &Pubkey
 ) -> Result<()> {
     let data = MarketInstruction::SettleFunds.pack();
     let instruction = Instruction {
@@ -1222,7 +1189,7 @@ fn settle_funds(
             AccountMeta::new(*coin_wallet, false),
             AccountMeta::new(*pc_wallet, false),
             AccountMeta::new_readonly(*state.vault_signer_key, false),
-            AccountMeta::new_readonly(spl_token::ID, false),
+            AccountMeta::new_readonly(spl_token::ID, false)
         ],
     };
     let recent_hash = client.get_latest_blockhash()?;
@@ -1234,7 +1201,7 @@ fn settle_funds(
         &[instruction],
         Some(&payer.pubkey()),
         &signers,
-        recent_hash,
+        recent_hash
     );
     let mut i = 0;
     loop {
@@ -1262,10 +1229,15 @@ pub fn list_market(
     coin_mint: &Pubkey,
     pc_mint: &Pubkey,
     coin_lot_size: u64,
-    pc_lot_size: u64,
+    pc_lot_size: u64
 ) -> Result<MarketPubkeys> {
-    let (listing_keys, mut instructions) =
-        gen_listing_params(client, program_id, &payer.pubkey(), coin_mint, pc_mint)?;
+    let (listing_keys, mut instructions) = gen_listing_params(
+        client,
+        program_id,
+        &payer.pubkey(),
+        coin_mint,
+        pc_mint
+    )?;
     let ListingKeys {
         market_key,
         req_q_key,
@@ -1301,12 +1273,9 @@ pub fn list_market(
         coin_lot_size,
         pc_lot_size,
         vault_signer_nonce,
-        100,
+        100
     )?;
-    debug_println!(
-        "initialize_market_instruction: {:#?}",
-        &init_market_instruction
-    );
+    debug_println!("_instruction: {:#?}", &init_market_instruction);
 
     instructions.push(init_market_instruction);
 
@@ -1319,13 +1288,13 @@ pub fn list_market(
         &bids_key,
         &asks_key,
         &req_q_key,
-        &event_q_key,
+        &event_q_key
     ];
     let txn = Transaction::new_signed_with_payer(
         &instructions,
         Some(&payer.pubkey()),
         &signers,
-        recent_hash,
+        recent_hash
     );
 
     debug_println!("txn:\n{:#x?}", txn);
@@ -1364,7 +1333,7 @@ fn gen_listing_params(
     program_id: &Pubkey,
     payer: &Pubkey,
     _coin_mint: &Pubkey,
-    _pc_mint: &Pubkey,
+    _pc_mint: &Pubkey
 ) -> Result<(ListingKeys, Vec<Instruction>)> {
     let (market_key, create_market) = create_dex_account(client, program_id, payer, 376)?;
     let (req_q_key, create_req_q) = create_dex_account(client, program_id, payer, 640)?;
@@ -1390,13 +1359,7 @@ fn gen_listing_params(
         vault_signer_pk,
         vault_signer_nonce,
     };
-    let instructions = vec![
-        create_market,
-        create_req_q,
-        create_event_q,
-        create_bids,
-        create_asks,
-    ];
+    let instructions = vec![create_market, create_req_q, create_event_q, create_bids, create_asks];
     Ok((info, instructions))
 }
 
@@ -1404,7 +1367,7 @@ fn create_dex_account(
     client: &RpcClient,
     program_id: &Pubkey,
     payer: &Pubkey,
-    unpadded_len: usize,
+    unpadded_len: usize
 ) -> Result<(Keypair, Instruction)> {
     let len = unpadded_len + 12;
     let key = Keypair::generate(&mut OsRng);
@@ -1413,7 +1376,7 @@ fn create_dex_account(
         &key.pubkey(),
         client.get_minimum_balance_for_rent_exemption(len)?,
         len as u64,
-        program_id,
+        program_id
     );
     Ok((key, create_account_instr))
 }
@@ -1424,7 +1387,7 @@ pub fn match_orders(
     payer: &Keypair,
     state: &MarketPubkeys,
     coin_wallet: &Pubkey,
-    pc_wallet: &Pubkey,
+    pc_wallet: &Pubkey
 ) -> Result<()> {
     let instruction_data: Vec<u8> = MarketInstruction::MatchOrders(2).pack();
 
@@ -1437,7 +1400,7 @@ pub fn match_orders(
             AccountMeta::new(*state.bids, false),
             AccountMeta::new(*state.asks, false),
             AccountMeta::new(*coin_wallet, false),
-            AccountMeta::new(*pc_wallet, false),
+            AccountMeta::new(*pc_wallet, false)
         ],
         data: instruction_data,
     };
@@ -1447,7 +1410,7 @@ pub fn match_orders(
         std::slice::from_ref(&instruction),
         Some(&payer.pubkey()),
         &[payer],
-        recent_hash,
+        recent_hash
     );
 
     debug_println!("Simulating order matching ...");
@@ -1467,7 +1430,7 @@ fn create_account(
     client: &RpcClient,
     mint_pubkey: &Pubkey,
     owner_pubkey: &Pubkey,
-    payer: &Keypair,
+    payer: &Keypair
 ) -> Result<Keypair> {
     let spl_account = Keypair::generate(&mut OsRng);
     let signers = vec![payer, &spl_account];
@@ -1479,14 +1442,14 @@ fn create_account(
         &spl_account.pubkey(),
         lamports,
         spl_token::state::Account::LEN as u64,
-        &spl_token::ID,
+        &spl_token::ID
     );
 
     let init_account_instr = token_instruction::initialize_account(
         &spl_token::ID,
         &spl_account.pubkey(),
         mint_pubkey,
-        owner_pubkey,
+        owner_pubkey
     )?;
 
     let instructions = vec![create_account_instr, init_account_instr];
@@ -1497,7 +1460,7 @@ fn create_account(
         &instructions,
         Some(&payer.pubkey()),
         &signers,
-        recent_hash,
+        recent_hash
     );
 
     debug_println!("Creating account: {} ...", spl_account.pubkey());
@@ -1511,7 +1474,7 @@ fn mint_to_existing_account(
     minting_key: &Keypair,
     mint: &Pubkey,
     recipient: &Pubkey,
-    quantity: u64,
+    quantity: u64
 ) -> Result<()> {
     let signers = vec![payer, minting_key];
 
@@ -1521,7 +1484,7 @@ fn mint_to_existing_account(
         recipient,
         &minting_key.pubkey(),
         &[],
-        quantity,
+        quantity
     )?;
 
     let instructions = vec![mint_tokens_instr];
@@ -1530,7 +1493,7 @@ fn mint_to_existing_account(
         &instructions,
         Some(&payer.pubkey()),
         &signers,
-        recent_hash,
+        recent_hash
     );
     send_txn(client, &txn, false)?;
     Ok(())
@@ -1544,13 +1507,13 @@ fn initialize_token_account(client: &RpcClient, mint: &Pubkey, owner: &Keypair) 
         &recip_keypair.pubkey(),
         lamports,
         spl_token::state::Account::LEN as u64,
-        &spl_token::ID,
+        &spl_token::ID
     );
     let init_recip_instr = token_instruction::initialize_account(
         &spl_token::ID,
         &recip_keypair.pubkey(),
         mint,
-        &owner.pubkey(),
+        &owner.pubkey()
     )?;
     let signers = vec![owner, &recip_keypair];
     let instructions = vec![create_recip_instr, init_recip_instr];
@@ -1559,7 +1522,7 @@ fn initialize_token_account(client: &RpcClient, mint: &Pubkey, owner: &Keypair) 
         &instructions,
         Some(&owner.pubkey()),
         &signers,
-        recent_hash,
+        recent_hash
     );
     send_txn(client, &txn, false)?;
     Ok(recip_keypair)
@@ -1574,7 +1537,7 @@ async fn read_queue_length_loop(
     client: RpcClient,
     program_id: Pubkey,
     market: Pubkey,
-    port: u16,
+    port: u16
 ) -> Result<()> {
     let client = Arc::new(client);
     let get_data = warp::path("length").map(move || {
@@ -1583,9 +1546,7 @@ async fn read_queue_length_loop(
         let event_q_data = client
             .get_account_with_commitment(&market_keys.event_q, CommitmentConfig::processed())
             .unwrap()
-            .value
-            .expect("Failed to retrieve account")
-            .data;
+            .value.expect("Failed to retrieve account").data;
         let inner: Cow<[u64]> = remove_dex_account_padding(&event_q_data).unwrap();
         let (_header, seg0, seg1) = parse_event_queue(&inner).unwrap();
         let len = seg0.len() + seg1.len();
