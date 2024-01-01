@@ -3,6 +3,7 @@ import {
   PublicKey,
   SYSVAR_RENT_PUBKEY,
   SYSVAR_CLOCK_PUBKEY,
+  Connection,
 } from "@solana/web3.js";
 import {
   OpenOrders,
@@ -11,13 +12,19 @@ import {
   ReferralFees,
   PermissionedCrank,
   MarketProxyBuilder,
+  MarketProxy,
 } from "@openbook-dex/openbook";
 
 // Returns a client for the market proxy.
 //
 // If changing the program, one will likely need to change the builder/middleware
 // here as well.
-export async function load(connection, proxyProgramId, dexProgramId, market) {
+export async function load(
+  connection: Connection,
+  proxyProgramId: PublicKey,
+  dexProgramId: PublicKey,
+  market: PublicKey
+): Promise<MarketProxy> {
   return new MarketProxyBuilder()
     .middleware(
       new OpenOrdersPda({

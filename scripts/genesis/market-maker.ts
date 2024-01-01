@@ -1,5 +1,6 @@
 import * as anchor from "@project-serum/anchor";
-import { OpenOrdersPda } from "@openbook-dex/openbook";
+import { MarketProxy, OpenOrdersPda } from "@openbook-dex/openbook";
+import { MarketMakerAccount } from "./types";
 const { Account, PublicKey, Transaction, SystemProgram } = anchor.web3;
 
 // Dummy keypair.
@@ -28,7 +29,11 @@ export async function initOpenOrders(
   await provider.send(tx, signers);
 }
 
-export async function postOrders(provider, marketProxy, marketMakerAccounts) {
+export async function postOrders(
+  provider: anchor.AnchorProvider,
+  marketProxy: MarketProxy,
+  marketMakerAccounts: MarketMakerAccount
+) {
   const asks = [
     [6.041, 7.8],
     [6.051, 72.3],
@@ -74,7 +79,7 @@ export async function postOrders(provider, marketProxy, marketMakerAccounts) {
         selfTradeBehavior: "abortTransaction",
       })
     );
-    await provider.send(tx, signers);
+    await provider.sendAndConfirm(tx, signers);
   }
 
   for (let k = 0; k < bids.length; k += 1) {
@@ -94,7 +99,7 @@ export async function postOrders(provider, marketProxy, marketMakerAccounts) {
         selfTradeBehavior: "abortTransaction",
       })
     );
-    await provider.send(tx, signers);
+    await provider.sendAndConfirm(tx, signers);
   }
 }
 

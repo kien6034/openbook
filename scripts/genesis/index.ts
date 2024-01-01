@@ -8,6 +8,7 @@ import { DEX_PID } from "./common";
 import * as marketProxy from "./market-proxy";
 
 export * from "./common";
+export * from "./types";
 // Initializes the genesis state for the tests and localnetwork.
 // export async function genesis({ provider, proxyProgramId }) {
 //   //

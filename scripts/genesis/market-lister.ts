@@ -162,23 +162,6 @@ export async function list(listMarketParams: ListMarketParams) {
       )) as any,
     })
   );
-  /**
-   *  authority: (await OpenOrdersPda.marketAuthority(
-        market.publicKey,
-        DEX_PID,
-        proxyProgramId
-      )) as any,
-      pruneAuthority: (await Identity.pruneAuthority(
-        market.publicKey,
-        DEX_PID,
-        proxyProgramId
-      )) as any,
-      crankAuthority: (await Identity.consumeEventsAuthority(
-        market.publicKey,
-        DEX_PID,
-        proxyProgramId
-      )) as any,
-   */
 
   const transactions = [
     { transaction: tx1, signers: [baseVault, quoteVault] },
@@ -216,7 +199,7 @@ async function getVaultOwnerAndNonce(marketPublicKey, dexProgramId = DEX_PID) {
 
 // Dummy keypair for a consistent market address. Helpful when doing UI work.
 // Don't use in production.
-const MARKET_KP = new Account([
+export const MARKET_KP = new Account([
   13, 174, 53, 150, 78, 228, 12, 98, 170, 254, 212, 211, 125, 193, 2, 241, 97,
   137, 49, 209, 189, 199, 27, 215, 220, 65, 57, 203, 215, 93, 105, 203, 217, 32,
   5, 194, 157, 118, 162, 47, 102, 126, 235, 65, 99, 80, 56, 231, 217, 114, 25,

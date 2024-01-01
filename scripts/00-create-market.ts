@@ -9,9 +9,7 @@ import { Market } from "@openbook-dex/openbook";
 import * as marketLister from "./genesis/market-lister";
 import { DEX_PID } from "./genesis";
 
-const PROXY_PROGRAM_ID = new PublicKey(
-  "6HYFhpivcv88pUPEECnU34LxPtvNsnLV4fxxDQDhMwdq"
-);
+const PROXY_PROGRAM_ID = new PublicKey(env.PROXY_PROGRAM_ID);
 
 const main = async () => {
   const wallets = getWallets([ROLES.DEPLOYER, ROLES.USER]);
@@ -22,8 +20,8 @@ const main = async () => {
   const result = await marketLister.list({
     provider: provider,
     wallet: deployerKeypair,
-    baseMint: new PublicKey("3ugV6gWJ5gAymoYdsU376ActzEJojgauMQ1UJahU5Pty"),
-    quoteMint: new PublicKey("J8iLUuErBdZVxT9DhurUZGeomeLA1V79nkPYj1rKu3cf"),
+    baseMint: new PublicKey(env.BASE_MINT),
+    quoteMint: new PublicKey(env.QUOTE_MINT),
     baseLotSize: 100000,
     quoteLotSize: 100,
     dexProgramId: DEX_PID,
